@@ -1,0 +1,67 @@
+name: Private Windows RDP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Configure Windows RDP
+        shell: pwsh
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          $password = ConvertTo-SecureString `
+            $env:RDP_PASSWORD -AsPlainText -Force
+
+          $user = Get-LocalUser -Name "runneradmin"
+          Set-LocalUser -Name $user.Name -Password $password
+
+          Set-ItemProperty `
+            -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" `
+            -Name "fDenyTSConnections" `
+            -Value 0
+
+          Enable-NetFirewallRule `
+            -DisplayGroup "Remote Desktop"
+
+          Write-Host "RDP configured."
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Display private connection details
+        shell: pwsh
+        run: |
+          $ip = tailscale ip -4
+
+          if (-not $ip) {
+            throw "Could not obtain Tailscale IP."
+          }
+
+          Write-Host "=================================="
+          Write-Host "Private Tailscale IP: $ip"
+          Write-Host "RDP Port: 3389"
+          Write-Host "Username: runneradmin"
+          Write-Host "=================================="
+
+      - name: Keep runner available
+        shell: pwsh
+        run: |
+          Write-Host "RDP session is available."
+          Write-Host "Cancel this workflow when finished."
+
+          while ($true) {
+            Start-Sleep -Seconds 60
+          }
