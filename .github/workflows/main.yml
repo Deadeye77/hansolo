@@ -1,38 +1,74 @@
+name: Private Windows RDP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 350
+
+    steps:
       - name: Configure Windows RDP
         shell: pwsh
         env:
           RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
-
         run: |
           $ErrorActionPreference = "Stop"
 
-          # Verify the GitHub secret exists
           if ([string]::IsNullOrWhiteSpace($env:RDP_PASSWORD)) {
-            throw "RDP_PASSWORD secret is missing or empty. Check GitHub repository Actions secrets."
+            throw "RDP_PASSWORD secret is missing."
           }
 
-          # Find the Windows account
           $user = Get-LocalUser -Name "runneradmin"
 
           if (-not $user) {
             throw "runneradmin account not found."
           }
 
-          # Set the password
           $password = ConvertTo-SecureString `
             $env:RDP_PASSWORD -AsPlainText -Force
 
-          Set-LocalUser `
-            -Name "runneradmin" `
-            -Password $password
+          Set-LocalUser -Name "runneradmin" -Password $password
 
-          # Enable Remote Desktop
           Set-ItemProperty `
             -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" `
             -Name "fDenyTSConnections" `
             -Value 0
 
-          Enable-NetFirewallRule `
-            -DisplayGroup "Remote Desktop"
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
           Write-Host "RDP configured successfully."
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Display RDP connection details
+        shell: pwsh
+        run: |
+          $ip = (tailscale ip -4).Trim()
+
+          if (-not $ip) {
+            throw "Tailscale IP not found."
+          }
+
+          Write-Host "RDP IP: $ip"
+          Write-Host "Username: runneradmin"
+          Write-Host "Port: 3389"
+
+      - name: Keep runner alive
+        shell: pwsh
+        run: |
+          Write-Host "RDP is ready."
+          Write-Host "Maximum job duration: 350 minutes."
+
+          while ($true) {
+            Start-Sleep -Seconds 60
+          }
