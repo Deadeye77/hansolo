@@ -1,18 +1,4 @@
-name: Private Windows RDP
-
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  rdp:
-    runs-on: windows-latest
-    timeout-minutes: 350
-
-    steps:
-      - name: Configure Windows RDP
+      - name: Configure and test RDP
         shell: pwsh
         env:
           RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
@@ -23,12 +9,7 @@ jobs:
             throw "RDP_PASSWORD secret is missing."
           }
 
-          $user = Get-LocalUser -Name "runneradmin"
-
-          if (-not $user) {
-            throw "runneradmin account not found."
-          }
-
+          # Set runner password
           $password = ConvertTo-SecureString `
             $env:RDP_PASSWORD -AsPlainText -Force
 
@@ -36,42 +17,47 @@ jobs:
             -Name "runneradmin" `
             -Password $password
 
+          # Enable RDP
           Set-ItemProperty `
             -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" `
             -Name "fDenyTSConnections" `
             -Value 0
 
+          # Require Network Level Authentication
+          Set-ItemProperty `
+            -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" `
+            -Name "UserAuthentication" `
+            -Value 1
+
+          # Enable Windows Firewall RDP rules
           Enable-NetFirewallRule `
             -DisplayGroup "Remote Desktop"
 
-          Write-Host "RDP configured successfully."
+          # Start Remote Desktop service
+          Set-Service `
+            -Name "TermService" `
+            -StartupType Automatic
 
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v4
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          Start-Service `
+            -Name "TermService"
 
-      - name: Display RDP connection details
-        shell: pwsh
-        run: |
-          $ip = (tailscale ip -4).Trim()
+          Write-Host ""
+          Write-Host "=== RDP SERVICE ==="
+          Get-Service TermService | Format-Table Name, Status, StartType
 
-          if (-not $ip) {
-            throw "Tailscale IP not found."
-          }
+          Write-Host ""
+          Write-Host "=== RDP LISTENER ==="
+          Get-NetTCPConnection `
+            -LocalPort 3389 `
+            -State Listen `
+            -ErrorAction SilentlyContinue
 
-          Write-Host "======================================"
-          Write-Host "RDP IP: $ip"
-          Write-Host "Username: runneradmin"
-          Write-Host "Port: 3389"
-          Write-Host "======================================"
+          Write-Host ""
+          Write-Host "=== FIREWALL ==="
+          Get-NetFirewallRule `
+            -DisplayGroup "Remote Desktop" |
+            Where-Object Enabled -eq "True" |
+            Format-Table DisplayName, Profile, Direction, Action
 
-      - name: Keep runner alive
-        shell: pwsh
-        run: |
-          Write-Host "RDP is ready."
-          Write-Host "Runner will remain available for up to 350 minutes."
-
-          while ($true) {
-            Start-Sleep -Seconds 60
-          }
+          Write-Host ""
+          Write-Host "RDP configuration complete."
