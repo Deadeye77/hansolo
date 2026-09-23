@@ -32,23 +32,24 @@ jobs:
           $password = ConvertTo-SecureString `
             $env:RDP_PASSWORD -AsPlainText -Force
 
-          Set-LocalUser -Name "runneradmin" -Password $password
+          Set-LocalUser `
+            -Name "runneradmin" `
+            -Password $password
 
           Set-ItemProperty `
             -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" `
             -Name "fDenyTSConnections" `
             -Value 0
 
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Enable-NetFirewallRule `
+            -DisplayGroup "Remote Desktop"
 
           Write-Host "RDP configured successfully."
 
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
       - name: Display RDP connection details
         shell: pwsh
@@ -59,15 +60,17 @@ jobs:
             throw "Tailscale IP not found."
           }
 
+          Write-Host "======================================"
           Write-Host "RDP IP: $ip"
           Write-Host "Username: runneradmin"
           Write-Host "Port: 3389"
+          Write-Host "======================================"
 
       - name: Keep runner alive
         shell: pwsh
         run: |
           Write-Host "RDP is ready."
-          Write-Host "Maximum job duration: 350 minutes."
+          Write-Host "Runner will remain available for up to 350 minutes."
 
           while ($true) {
             Start-Sleep -Seconds 60
